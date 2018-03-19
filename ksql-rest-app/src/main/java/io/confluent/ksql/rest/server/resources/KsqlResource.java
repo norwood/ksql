@@ -89,6 +89,7 @@ import io.confluent.ksql.rest.entity.KsqlTopicsList;
 import io.confluent.ksql.rest.entity.PropertiesList;
 import io.confluent.ksql.rest.entity.Queries;
 import io.confluent.ksql.rest.entity.SourceDescription;
+import io.confluent.ksql.rest.entity.SourceDescription.FieldSchemaInfo;
 import io.confluent.ksql.rest.entity.StreamsList;
 import io.confluent.ksql.rest.entity.TablesList;
 import io.confluent.ksql.rest.entity.TopicDescription;
@@ -105,6 +106,7 @@ import io.confluent.ksql.util.KsqlException;
 import io.confluent.ksql.util.Pair;
 import io.confluent.ksql.util.PersistentQueryMetadata;
 import io.confluent.ksql.util.QueryMetadata;
+import io.confluent.ksql.util.SchemaUtil;
 
 @Path("/ksql")
 @Consumes(MediaType.APPLICATION_JSON)
@@ -445,36 +447,34 @@ public class KsqlResource {
       );
     }
 
-    DdlCommandTask ddlCommandTask = ddlCommandTasks.get(statement.getClass());
-    if (ddlCommandTask != null) {
-      try {
-        String executionPlan = ddlCommandTask.execute(statement, statementText, properties);
-        return new SourceDescription(
-            "",
-            "User-Evaluation",
-            Collections.EMPTY_LIST,
-            Collections.EMPTY_LIST,
-            Collections.EMPTY_LIST,
-            "QUERY",
-            "",
-            "",
-            "",
-            "",
-            true,
-            "",
-            "",
-            "",
-            executionPlan,
-            0,
-            0
-        );
-      } catch (KsqlException ksqlException) {
-        throw ksqlException;
-      } catch (Throwable t) {
-        throw new KsqlException("Cannot RUN execution plan for this statement, " + statement, t);
-      }
+    try {
+      QueryMetadata qm = ksqlEngine.getQueryExecutionPlan((Query) statement);
+      return new SourceDescription(
+          statementText,
+          "User-Evaluation",
+          Collections.EMPTY_LIST,
+          Collections.EMPTY_LIST,
+          qm.getOutputNode().getSchema().fields().stream().map(
+              field -> new FieldSchemaInfo(field.name(), SchemaUtil.getSchemaFieldName(field))
+          ).collect(Collectors.toList()),
+          "QUERY",
+          "",
+          "",
+          "",
+          "",
+          true,
+          "",
+          "",
+          "",
+          qm.getExecutionPlan(),
+          0,
+          0
+      );
+    } catch (KsqlException ksqlException) {
+      throw ksqlException;
+    } catch (Throwable t) {
+      throw new KsqlException("Cannot RUN execution plan for this statement, " + statement, t);
     }
-    throw new KsqlException("Cannot FIND execution plan for this statement:" + statement);
   }
 
   private interface DdlCommandTask {
